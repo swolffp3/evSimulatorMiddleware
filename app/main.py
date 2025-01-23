@@ -17,7 +17,7 @@ def validJsonBody(request: Request) -> Dict[str, Any]:
 def validateJsonBody(REQUIRED_KEYS: List[str], body: Dict[str, str]) -> List[str]:
     missingKeys = list()
     for key in REQUIRED_KEYS:
-        if not body.__contains__(key):
+        if key not in body:
             missingKeys.append(key)
     return missingKeys
 
@@ -28,7 +28,7 @@ def getAllTopicsWithValue():
 
 @app.get("/topics/{topic}", status_code=status.HTTP_200_OK)
 def getTopicWithValue(topic: str, response: Response):
-    if not topics.__contains__(topic):
+    if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
     return {"value": topics.get(topic)}
@@ -46,7 +46,7 @@ async def createTopic(request: Request, response: Response):
 
     topic = requestBody.get("name")
     value = requestBody.get("value")
-    if topics.__contains__(topic):
+    if topic in topics:
         response.status_code = status.HTTP_400_BAD_REQUEST
         return {"message": f"A topic with the name '{topic}' already exists"}
 
@@ -65,12 +65,12 @@ async def updateTopic(topic: str, request: Request, response: Response):
         return {"message": f"The following keys are missing: '{missingKeys}'"}
 
     newValue = requestBody.get("value")
-    if not topics.__contains__(topic):
+    if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
 
     topics[topic] = newValue
-    if subscribers.__contains__(topic):
+    if topic in subscribers:
         for subscriber in subscribers[topic]:
             try:
                 await subscriber.send_text(topics.get(topic))
@@ -82,17 +82,34 @@ async def updateTopic(topic: str, request: Request, response: Response):
 # Delete an existing topic
 @app.delete("/topics/{topic}", status_code=status.HTTP_204_NO_CONTENT)
 def deleteTopic(topic: str, response: Response):
-    if not topics.__contains__(topic):
+    if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return {"message": f"No topic named: '{topic}'"}
-    topics.__delitem__(topic)
+    topics.pop(topic)
 
-    if subscribers.__contains__(topic):
-        subscribers.__delitem__(topic)
+    if topic not in subscribers:
+        subscribers.pop(topic)
     return {"message": f"Removed topic '{topic}' successfully"}
 
 
+# Websocket connection endpoint to subscribe a topic
+@app.websocket("/topics/{topic}/subscribe")
+async def subscribeTopic(topic: str, websocket: WebSocket):
+    if topic not in topics:
+        await websocket.close()
+    else:
+        await websocket.accept()
+        if topic not in subscribers:
+            subscribers[topic] = list()
+        subscribers[topic].append(websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            subscribers[topic].remove(websocket)
+
+
 # Entry point of program
-if __name__ == "__main__":
-    port = int(environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+# if __name__ == "__main__":
+#     port = int(environ.get("PORT", 8000))
+#     uvicorn.run(app, host="0.0.0.0", port=port)
