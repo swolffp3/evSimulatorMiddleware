@@ -34,7 +34,7 @@ def getTopicWithValue(topic: str, response: Response):
     if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
-    log.info(f"The {topic} topic was requested")
+    log.info(f"The '{topic}' topic was requested")
     return {"value": topics.get(topic)}
 
 
@@ -55,7 +55,7 @@ async def createTopic(request: Request, response: Response):
         return {"message": f"A topic with the name '{topic}' already exists"}
 
     topics[topic] = value
-    log.info(f"The {topic} topic with {value} as intial value was created")
+    log.info(f"The '{topic}' topic with '{value}' as intial value was created")
     return {topic: topics.get(topic)}
 
 
@@ -82,7 +82,7 @@ async def updateTopic(topic: str, request: Request, response: Response):
                 await subscriber.send_text(topics.get(topic))
             except Exception as e:
                 print(f"Failed to notify subscriber: {e}")
-    log.info(f"The value from {topic} was changed from {oldValue} to {newValue}")
+    log.info(f"The value from '{topic}' was changed from '{oldValue}' to '{newValue}'")
     return {"message": f"Topic '{topic}' updated successfully","value": newValue}
 
 
@@ -99,7 +99,7 @@ async def deleteTopic(topic: str, response: Response):
         for subscriber in subscribers.get(topic):
             await subscriber.close()
         subscribers.pop(topic)
-    log.info(f"The {topic} topic was removed and all connections to the subscribors were closed")
+    log.info(f"The '{topic}' topic was removed and all connections to the subscribors were closed")
     return {"message": f"Removed topic '{topic}' successfully"}
 
 
@@ -107,7 +107,7 @@ async def deleteTopic(topic: str, response: Response):
 @app.websocket("/topics/{topic}/subscribe")
 async def subscribeTopic(topic: str, websocket: WebSocket):
     if topic not in topics:
-        log.warning("Subscriber refused because topic {topic} doesn't exists")
+        log.warning("Subscriber refused because the '{topic}' topic doesn't exists")
         await websocket.close()
     else:
         log.info("A new subscriber appeared")
