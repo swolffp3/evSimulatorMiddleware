@@ -1,14 +1,21 @@
 from os import environ
 from logging import getLogger
+from typing import Dict, List, Any, Optional
 
-from typing import Dict, List, Any
-from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect, Body
 
 
-topics: Dict[str, str] = dict(charging="disabled")
+topics: Dict[str, str] = dict(charging="off")
 subscribers: Dict[str, List[WebSocket]] = dict()
-app = FastAPI()
+app = FastAPI(root_path="/api/v1")
 log = getLogger("uvicorn.error")
+
+
+class Topic(BaseModel):
+    name: Optional[str] = None
+    value: Optional[str] = None
+
 
 def validJsonBody(request: Request) -> Dict[str, Any]:
     try:
@@ -23,14 +30,21 @@ def validateJsonBody(REQUIRED_KEYS: List[str], body: Dict[str, str]) -> List[str
             missingKeys.append(key)
     return missingKeys
 
+
 # Read all or a specific topic value
-@app.get("/topics", status_code=status.HTTP_200_OK)
-def getAllTopicsWithValue():
+@app.get("/topics", status_code=status.HTTP_200_OK,
+    name="Get all topics",
+    description="Returns a list of all existing topics which their values."
+)
+def getAllTopics():
     log.info("All topics were requested")
     return {"topics": dict(topics.items())}
 
-@app.get("/topics/{topic}", status_code=status.HTTP_200_OK)
-def getTopicWithValue(topic: str, response: Response):
+@app.get("/topics/{topic}", status_code=status.HTTP_200_OK,
+    name="Get a topic",
+    description="Returns the requested topic with its value."
+)
+def getIndividualTopic(topic: str, response: Response):
     if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
@@ -39,8 +53,11 @@ def getTopicWithValue(topic: str, response: Response):
 
 
 # Create a topic if it not already exists
-@app.post("/topics", status_code=status.HTTP_201_CREATED)
-async def createTopic(request: Request, response: Response):
+@app.post("/topics", status_code=status.HTTP_201_CREATED,
+    name="Create a topic",
+    description="Creates a new topic."
+)
+async def createTopic(request: Request, response: Response, body: Topic=Body(...)):
     REQUIRED_KEYS = ["name", "value"]
     requestBody = await validJsonBody(request)
     missingKeys = validateJsonBody(REQUIRED_KEYS, requestBody)
@@ -60,8 +77,11 @@ async def createTopic(request: Request, response: Response):
 
 
 # Update the value of a existing topic
-@app.patch("/topics/{topic}")
-async def updateTopic(topic: str, request: Request, response: Response):
+@app.patch("/topics/{topic}", status_code=status.HTTP_200_OK,
+    name="Update value of a topic",
+    description="Update a value of an existing topic. Triggers an event at the subscribers of the topic."
+)
+async def updateTopic(topic: str, request: Request, response: Response, body: Topic=Body(..., example={"value": "string"})):
     REQUIRED_KEYS = ["value"]
     requestBody = await validJsonBody(request)
     missingKeys = validateJsonBody(REQUIRED_KEYS, requestBody)
@@ -70,6 +90,9 @@ async def updateTopic(topic: str, request: Request, response: Response):
         return {"message": f"The following keys are missing: '{missingKeys}'"}
 
     newValue = requestBody.get("value")
+    if topic == "charging" and newValue != "A" and newValue != "B" and newValue != "C" and newValue != "D" and newValue != "off":
+        response.status_code = 422
+        return {"message": "Only 'A', 'B', 'C', 'D', and 'off' are allowed values for topic 'charging'" }
     if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
@@ -87,8 +110,14 @@ async def updateTopic(topic: str, request: Request, response: Response):
 
 
 # Delete an existing topic
-@app.delete("/topics/{topic}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/topics/{topic}", status_code=status.HTTP_204_NO_CONTENT,
+    name="Delete a topic",
+    description="Deletes a topic and closes all connections to the clients which subscribes this topic."
+)
 async def deleteTopic(topic: str, response: Response):
+    if topic == "charging":
+        response.status_code = 422
+        return {"message": "The topic 'charging' can't be deleted"}
     if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return {"message": f"No topic named: '{topic}'"}
