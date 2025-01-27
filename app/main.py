@@ -1,21 +1,37 @@
+from sys import argv
 from os import environ
-from random import randint
 from logging import getLogger
+from secrets import compare_digest
 from typing import Dict, List, Any, Optional
 
+from uvicorn import run
 from pydantic import BaseModel
+from bcrypt import hashpw, checkpw, gensalt
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect, Depends, HTTPException, APIRouter, Body
+from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect, HTTPException, Body, Depends
 
 topics: Dict[str, str] = dict(charging="off")
 subscribers: Dict[str, List[WebSocket]] = dict()
+
 app = FastAPI(root_path="/api/v1")
 log = getLogger("uvicorn.error")
 
-users = dict(test=dict(username="test", password="test", userId=1),
-             subscriber=dict(username="subscriber", password="subscribe", userId=2)
-)
-sessions = dict()
+security = HTTPBasic()
+VALID_USERNAME = None
+VALID_PASSWORD = None
+
+def authenticateUser(credentials: HTTPBasicCredentials=Depends(security)):
+    receivedPassword = credentials.password = credentials.password.encode("UTF-8")
+    usernameCorrect = compare_digest(credentials.username, VALID_USERNAME)
+    passwordCorrect = checkpw(receivedPassword, VALID_PASSWORD)
+
+    if not (usernameCorrect and passwordCorrect):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Invalid credentials",
+            {"WWW-Authenticate": "Basic"}
+        )
+    return credentials.username
 
 class Topic(BaseModel):
     name: Optional[str] = None
@@ -36,40 +52,18 @@ def validateJsonBody(REQUIRED_KEYS: List[str], body: Dict[str, str]) -> List[str
     return missingKeys
 
 
-# def authenticateUser(credentials: HTTPBasicCredentials=Depends(security)):
-#     user = users.get(credentials.username)
-#     if user is None or user.get("password") != credentials.password:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid credentials",
-#             headers={"WWW-Authenticate": "Basic"},
-#         )
-#     return user
-
-# def createSession(userId: int):
-#     sessionId = len(sessions) + randint(0, 1000000)
-#     sessions[sessionId] = userId
-#     return sessionId
-
-# @router.post("login")
-# def login(user: dict=Depends(authenticateUser)):
-#     sessionId = createSession(user.get("userId"))
-#     return {"message": "Logged in successfully", "sessionId": sessionId}
-
 # Read all or a specific topic value
 @app.get("/topics", status_code=status.HTTP_200_OK,
     name="Get all topics",
-    description="Returns a list of all existing topics which their values."
-)
-def getAllTopics():
+    description="Returns a list of all existing topics which their values.")
+def getAllTopics(username: str = Depends(authenticateUser)):
     log.info("All topics were requested")
     return {"topics": dict(topics.items())}
 
 @app.get("/topics/{topic}", status_code=status.HTTP_200_OK,
     name="Get a topic",
-    description="Returns the requested topic with its value."
-)
-def getIndividualTopic(topic: str, response: Response):
+    description="Returns the requested topic with its value.")
+def getIndividualTopic(topic: str, response: Response, username: str = Depends(authenticateUser)):
     if topic not in topics:
         response.status_code = status.HTTP_404_NOT_FOUND
         return dict()
@@ -80,9 +74,8 @@ def getIndividualTopic(topic: str, response: Response):
 # Create a topic if it not already exists
 @app.post("/topics", status_code=status.HTTP_201_CREATED,
     name="Create a topic",
-    description="Creates a new topic."
-)
-async def createTopic(request: Request, response: Response, body: Topic=Body(...)):
+    description="Creates a new topic.")
+async def createTopic(request: Request, response: Response, body: Topic=Body(...), username: str = Depends(authenticateUser)):
     REQUIRED_KEYS = ["name", "value"]
     requestBody = await validJsonBody(request)
     missingKeys = validateJsonBody(REQUIRED_KEYS, requestBody)
@@ -104,9 +97,8 @@ async def createTopic(request: Request, response: Response, body: Topic=Body(...
 # Update the value of a existing topic
 @app.patch("/topics/{topic}", status_code=status.HTTP_200_OK,
     name="Update value of a topic",
-    description="Update a value of an existing topic. Triggers an event at the subscribers of the topic."
-)
-async def updateTopic(topic: str, request: Request, response: Response, body: Topic=Body(..., example={"value": "string"})):
+    description="Update a value of an existing topic. Triggers an event at the subscribers of the topic.")
+async def updateTopic(topic: str, request: Request, response: Response, body: Topic=Body(..., example={"value": "string"}), username: str = Depends(authenticateUser)):
     REQUIRED_KEYS = ["value"]
     requestBody = await validJsonBody(request)
     missingKeys = validateJsonBody(REQUIRED_KEYS, requestBody)
@@ -138,9 +130,8 @@ async def updateTopic(topic: str, request: Request, response: Response, body: To
 # Delete an existing topic
 @app.delete("/topics/{topic}", status_code=status.HTTP_204_NO_CONTENT,
     name="Delete a topic",
-    description="Deletes a topic and closes all connections to the clients which subscribes this topic."
-)
-async def deleteTopic(topic: str, response: Response):
+    description="Deletes a topic and closes all connections to the clients which subscribes this topic.")
+async def deleteTopic(topic: str, response: Response, username: str = Depends(authenticateUser)):
     if topic == "charging":
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
             "The topic 'charging' can't be deleted")
@@ -182,5 +173,9 @@ async def subscribeTopic(topic: str, websocket: WebSocket):
 
 # Entry point of program
 if __name__ == "__main__":
+    if len(argv) < 3:
+        raise ValueError("You have to pass the username and password")
+    VALID_USERNAME = argv[1]
+    VALID_PASSWORD = hashpw(argv[2].encode("utf-8"), gensalt())
     port = int(environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    run(app, host="0.0.0.0", port=port)
