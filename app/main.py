@@ -18,8 +18,6 @@ app = FastAPI(root_path="/api/v1")
 log = getLogger("uvicorn.error")
 
 security = HTTPBasic()
-VALID_USERNAME = None
-VALID_PASSWORD = None
 
 def authenticateUser(credentials: HTTPBasicCredentials=Depends(security)):
     receivedPassword = credentials.password = credentials.password.encode("UTF-8")
@@ -177,6 +175,9 @@ def hashPassword(password: str):
 
 # Entry point of program
 if __name__ == "__main__":
+    global VALID_USERNAME
+    global VALID_PASSWORD
+
     if len(argv) < 3:
         raise ValueError("You have to pass the username and password")
     parser = ArgumentParser()
