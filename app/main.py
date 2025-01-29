@@ -1,5 +1,6 @@
 from sys import argv
 from os import environ
+from argparse import ArgumentParser
 from logging import getLogger
 from secrets import compare_digest
 from typing import Dict, List, Any, Optional
@@ -10,7 +11,7 @@ from bcrypt import hashpw, checkpw, gensalt
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect, HTTPException, Body, Depends
 
-topics: Dict[str, str] = dict(charging="off")
+topics: Dict[str, str] = dict(cp="off")
 subscribers: Dict[str, List[WebSocket]] = dict()
 
 app = FastAPI(root_path="/api/v1")
@@ -171,11 +172,20 @@ async def subscribeTopic(topic: str, websocket: WebSocket):
                 subscribers[topic].remove(websocket)
 
 
+def hashPassword(password: str):
+    return hashpw(password.encode("utf-8"), gensalt())
+
 # Entry point of program
 if __name__ == "__main__":
     if len(argv) < 3:
         raise ValueError("You have to pass the username and password")
-    VALID_USERNAME = argv[1]
-    VALID_PASSWORD = hashpw(argv[2].encode("utf-8"), gensalt())
+    parser = ArgumentParser()
+    parser.add_argument("-u", "--username", type=str, dest="username", help="The required username for basic authentication")
+    parser.add_argument("-p", "--password", type=hashPassword, dest="password", help="The required password for basic authentication")
+    passedArgs = parser.parse_args()
+
+    VALID_USERNAME = passedArgs.username
+    VALID_PASSWORD = passedArgs.password
+
     port = int(environ.get("PORT", 8000))
     run(app, host="0.0.0.0", port=port)
