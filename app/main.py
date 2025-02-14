@@ -11,7 +11,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import FastAPI, Request, Response, status, WebSocket, WebSocketDisconnect, HTTPException, Body, Depends
 
 
-topics: Dict[str, str] = dict(cp="off")
+topics: Dict[str, str] = dict(cp="A")
+CP_ALLOWED_VALUES = ("A", "B", "C", "D")
 subscribers: Dict[str, List[WebSocket]] = dict()
 
 app = FastAPI(root_path="/api/v1")
@@ -200,9 +201,9 @@ async def updateTopic(topic: str, request: Request, response: Response, body: To
             f"The following keys are missing: '{missingKeys}'")
 
     newValue = requestBody.get("value")
-    if topic == "cp" and newValue != "A" and newValue != "B" and newValue != "C" and newValue != "D" and newValue != "off":
+    if topic == "cp" and newValue not in CP_ALLOWED_VALUES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Only 'A', 'B', 'C', 'D', and 'off' are allowed values for topic 'cp'")
+            "Only 'A', 'B', 'C', 'D' are allowed values for topic 'cp'")
 
     if topic not in topics:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
